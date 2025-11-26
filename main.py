@@ -50,14 +50,34 @@ class QuizRequest(BaseModel):
 # FETCH HTML (JS RENDERED)
 # ---------------------------------------------------------------------------
 def fetch_html(url: str) -> str:
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        page.goto(url, timeout=30000)
-        page.wait_for_load_state("domcontentloaded")
-        html = page.content()
-        browser.close()
-        return html
+    """
+    Fetch HTML content from a URL using Playwright to handle JavaScript-rendered content.
+    
+    Args:
+        url: The URL to fetch
+        
+    Returns:
+        The HTML content of the page
+        
+    Raises:
+        RuntimeError: If the page fails to load or fetch
+    """
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                page = browser.new_page()
+                # Navigate to the URL with timeout
+                page.goto(url, timeout=30000, wait_until="networkidle")
+                # Wait for content to be loaded
+                page.wait_for_load_state("domcontentloaded")
+                # Get the HTML content
+                html = page.content()
+                return html
+            finally:
+                browser.close()
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch HTML from {url}: {str(e)}")
 
 # ---------------------------------------------------------------------------
 # PARSE QUIZ (LLM)
