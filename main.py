@@ -1,9 +1,9 @@
 import os
 import json
 import requests
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright  # ⬅️ changed
 import google.generativeai as genai
 from dotenv import load_dotenv
 
@@ -47,35 +47,21 @@ class QuizRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 # ---------------------------------------------------------------------------
-# FETCH HTML (JS RENDERED)
+# FETCH HTML (JS RENDERED) - ASYNC
 # ---------------------------------------------------------------------------
-def fetch_html(url: str) -> str:
+async def fetch_html(url: str) -> str:
     """
-    Fetch HTML content from a URL using Playwright to handle JavaScript-rendered content.
-    
-    Args:
-        url: The URL to fetch
-        
-    Returns:
-        The HTML content of the page
-        
-    Raises:
-        RuntimeError: If the page fails to load or fetch
+    Fetch HTML content from a URL using Playwright (async) to handle JS-rendered content.
     """
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            try:
-                page = browser.new_page()
-                # Navigate to the URL with timeout
-                page.goto(url, timeout=30000, wait_until="networkidle")
-                # Wait for content to be loaded
-                page.wait_for_load_state("domcontentloaded")
-                # Get the HTML content
-                html = page.content()
-                return html
-            finally:
-                browser.close()
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.goto(url, timeout=30000, wait_until="networkidle")
+            await page.wait_for_load_state("domcontentloaded")
+            html = await page.content()
+            await browser.close()
+            return html
     except Exception as e:
         raise RuntimeError(f"Failed to fetch HTML from {url}: {str(e)}")
 
@@ -92,9 +78,9 @@ Extract and return ONLY valid JSON:
 
 Format:
 {{
-  "question":"...",
-  "submit_url":"...",
-  "data_sources":[]
+  "question": "...",
+  "submit_url": "...",
+  "data_sources": []
 }}
 """
 
@@ -103,7 +89,7 @@ Format:
 
     try:
         return json.loads(text[text.index("{"): text.rindex("}")+1])
-    except:
+    except Exception:
         raise RuntimeError("Failed to parse quiz metadata")
 
 # ---------------------------------------------------------------------------
@@ -130,7 +116,7 @@ def submit_answer(submit_url, original_url, answer):
 
     try:
         return resp.json()
-    except:
+    except Exception:
         return {"correct": False, "reason": "Invalid server response"}
 
 # ---------------------------------------------------------------------------
@@ -142,17 +128,17 @@ async def root(task: QuizRequest):
     if task.secret != STUDENT_SECRET:
         raise HTTPException(status_code=403, detail="Invalid secret")
 
-    html = fetch_html(task.url)
-    parsed = parse_quiz(html)
+    # ⬇️ async Playwright usage
+    html = await fetch_html(task.url)
 
+    parsed = parse_quiz(html)
     question = parsed["question"]
     submit_url = parsed["submit_url"]
 
     answer = solve_question(question)
-
     result = submit_answer(submit_url, task.url, answer)
 
-    return result  # ✅ full final answer returned immediately
+    return result  # ✅ final answer returned
 
 # ---------------------------------------------------------------------------
 @app.get("/")
